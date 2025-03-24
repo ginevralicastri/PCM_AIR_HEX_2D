@@ -38,13 +38,13 @@ import json
 path = r'C:\Users\ginevra.licastri\Desktop\Python Projects\PCM_AIR_HEX_2D\data'
  
 # starting date of correct data monitoring (Twin A)
-start_date_A = datetime.strptime("22-06-2024", '%d-%m-%Y')
+start_date_A = datetime.strptime("21-11-2023", '%d-%m-%Y')
 
 # starting date of correct data monitoring (Twin B)
-start_date_B = datetime.strptime("22-06-2024", '%d-%m-%Y')
+start_date_B = datetime.strptime("21-11-2023", '%d-%m-%Y')
 
 # starting date of correct data monitoring (Climate)
-start_date_CS = datetime.strptime("22-06-2024", '%d-%m-%Y')
+start_date_CS = datetime.strptime("21-11-2023", '%d-%m-%Y')
 
 delta_hour_Solcast = 0 # "0" for legal hour, "1" for solar hour
 
@@ -234,7 +234,7 @@ ftpfiles = sorted(ftp.nlst(), key=lambda s: s[3:])
 
 
 # name of the output file
-A_filename = "20_12-11_01-SA.csv".format(datetime.now().date())
+A_filename = "data_download.csv".format(datetime.now().date())
 
 # Unloading and saving (function)
 unload_and_join_from_ftp_TWINS(ftpfiles,

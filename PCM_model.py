@@ -4,8 +4,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from scipy.interpolate import UnivariateSpline
+import scipy.stats as stats
 # === Load Data ===
-input_data = pd.read_excel("data/input_data.xlsx")
+input_data = pd.read_excel("data/winter_2.xlsx")
 h_T_data = pd.read_excel("data/h(T)_2.xlsx")
 
 # === Clean and Prepare Enthalpy Table ===
@@ -14,10 +16,11 @@ h_interp = interp1d(h_T_cleaned['T'], h_T_cleaned['H'], kind='linear', fill_valu
 
 # === Constants and Geometry ===
 cp_air = 1007  # J/kg·K
-h_conv = 15    # W/m²·K
+
 plate_area = 0.45 * 0.30  # m²
-cross_section_area = 0.018  # m²
+cross_section_area = 0.017  # m²
 pcm_mass_total = 2  # kg per plate
+rho_air = 1.2 #kg/m³
 x_steps = 3
 time_step_s = 300  # 5 min in seconds
 num_steps = len(input_data)
@@ -39,16 +42,16 @@ def compute_convective_h(velocity, L=0.3):
     return h_conv
 # === Initialization ===
 air_temp = np.zeros((num_steps, x_steps))
-pcm_temp = np.full((x_steps, 2), 20.5)
+pcm_temp = np.full((x_steps, 2), 18.6) #estate 27.2, inverno 18.6
 pcm_mass_per_cell = pcm_mass_total / x_steps
 air_temp[0, 0] = input_data.iloc[0]['HEX1_Ta_inlet (degC (Ave))']
 air_temp[0, 1:] = air_temp[0, 0]
-
+#k_factor = 2.8457
 # === Time Loop ===
 for t in range(1, num_steps):
     air_temp[t, 0] = input_data.iloc[t]['HEX1_Ta_inlet (degC (Ave))']
     velocity = input_data.iloc[t]['HEX1_v_outlet (m/s)']
-    mass_flow_air = velocity * cross_section_area * 1.2  # rho_air ≈ 1.2 kg/m³
+    mass_flow_air = velocity * cross_section_area * rho_air #* k_factor # rho_air ≈ 1.2 kg/m³
     h_conv= compute_convective_h(velocity, L=0.3)
 
     for x in range(1, x_steps):
@@ -74,12 +77,26 @@ air_temp_df.set_index("Timestamp", inplace=True)
 
 simulated_outlet_temp = air_temp[:, -1]
 experimental_outlet_temp = input_data["HEX1_Ta_outlet (degC (Ave))"].values
+def cvrmse(y_true, y_pred):
+    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    mean_actual = np.mean(y_true)
+    cvrmse = (rmse / mean_actual) * 100
+    return cvrmse
+def nbe(y_true, y_pred):
+    bias = np.sum(y_pred - y_true)
+    mean_actual = np.mean(y_true)
+    n = len(y_true)
+    nbe = (bias / (n * mean_actual)) * 100
+    return nbe
+
 mae = mean_absolute_error(experimental_outlet_temp, simulated_outlet_temp)
 mse = mean_squared_error(experimental_outlet_temp, simulated_outlet_temp)
 rmse = np.sqrt(mse)
 mape = np.mean(np.abs((experimental_outlet_temp - simulated_outlet_temp) / experimental_outlet_temp)) * 100
 r2 = r2_score(experimental_outlet_temp, simulated_outlet_temp)
 mbe = np.mean(simulated_outlet_temp - experimental_outlet_temp)
+cvrmse =cvrmse (experimental_outlet_temp, simulated_outlet_temp)
+nbe = nbe(experimental_outlet_temp, simulated_outlet_temp)
 # Create DataFrame
 metrics_df = pd.DataFrame({
     "Metric": [
@@ -88,7 +105,9 @@ metrics_df = pd.DataFrame({
         "Root Mean Squared Error (RMSE)",
         "Mean Absolute Percentage Error (MAPE)",
         "Mean Bias Error (MBE)",
-        "R² Score"
+        "R² Score",
+        "Coefficient of Variation of RMSE (CVRMSE)",
+        "Normalized Bias Error (NBE)"
     ],
     "Value": [
         mae,
@@ -96,7 +115,9 @@ metrics_df = pd.DataFrame({
         rmse,
         mape,
         mbe,
-        r2
+        r2,
+        cvrmse,
+        nbe
     ]
 })
 
@@ -161,3 +182,45 @@ plt.savefig("figures/h_vs_T_interpolated.png")
 plt.close()
 # === Optional: Save results as CSV ===
 # air_temp_df.to_csv("results/air_temperature_simulation.csv")
+
+#residuals histogram
+residuals = experimental_outlet_temp - simulated_outlet_temp
+plt.figure(figsize=[8, 6])
+plt.hist(residuals, bins=30, edgecolor='k', alpha=0.7)
+plt.axvline(0, color='red', linestyle='dashed', linewidth=1)
+plt.xlabel('Residuals')
+plt.ylabel('Frequency')
+plt.title('Histogram of Residuals')
+plt.grid(True)
+plt.savefig("figures/residuals_histogram.png")
+plt.close()
+
+plt.figure(figsize=(8, 6))
+plt.scatter(simulated_outlet_temp, residuals, alpha=0.6)
+plt.axhline(0, color='red', linestyle='dashed', linewidth=1)
+plt.xlabel('Fitted Values (Predictions)')
+plt.ylabel('Residuals')
+plt.title('Residuals vs. Fitted Values')
+plt.grid(True)
+plt.savefig("figures/residuals_vs_simulated.png")
+plt.close()
+
+min_val = min(min(experimental_outlet_temp), min(simulated_outlet_temp))
+max_val = max(max(experimental_outlet_temp), max(simulated_outlet_temp))
+plt.figure(figsize=(8, 6))
+plt.scatter(experimental_outlet_temp, simulated_outlet_temp, alpha=0.6)
+plt.plot([min_val, max_val], [min_val, max_val], color='red', linestyle='dashed', linewidth=1)
+plt.xlabel('Measured [°C]')
+plt.ylabel('Predicted [°C]')
+plt.title('Measured vs Predicted')
+plt.grid(True)
+plt.savefig("figures/experimental_vs_simulated.png")
+plt.close()
+
+plt.figure(figsize=(8, 6))
+stats.probplot(residuals, dist="norm", plot=plt)
+plt.title('Normal Q-Q Plot')
+plt.grid(True)
+plt.savefig("figures/normal_plot.png")
+plt.close()
+
